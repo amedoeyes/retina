@@ -1,3 +1,6 @@
+set(BOOST_INCLUDE_LIBRARIES asio beast)
+set(BOOST_ENABLE_CMAKE ON)
+
 include(FetchContent)
 
 set(FETCHCONTENT_QUIET OFF)

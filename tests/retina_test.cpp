@@ -18,8 +18,10 @@ TEST_CASE("retina", "[retina]") {
 
 		server.route(
 			"/", retina::Method::post,
-			[&i](const retina::Request &req, retina::Response &) {
+			[&i](const retina::Request &req, retina::Response &res) {
 				i = std::stoi(req.body());
+
+				res.body() = std::to_string(i);
 			}
 		);
 
@@ -29,14 +31,15 @@ TEST_CASE("retina", "[retina]") {
 	retina::Client client{"localhost", "8080"};
 
 	SECTION("GET") {
-		auto res = client.send(retina::Method::get, "/");
+		auto res{client.send(retina::Method::get, "/")};
 
 		REQUIRE(res.body() == "test");
 	}
 
 	SECTION("POST") {
-		client.send(retina::Method::post, "/", "100");
+		auto res{client.send(retina::Method::post, "/", "100")};
 
+		REQUIRE(res.body() == "100");
 		REQUIRE(i == 100);
 	}
 
