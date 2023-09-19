@@ -1,3 +1,17 @@
+include(FetchContent)
+
+set(FETCHCONTENT_QUIET OFF)
+
+fetchcontent_declare(
+    Catch2
+    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+    GIT_TAG v3.4.0
+    GIT_SHALLOW TRUE
+    GIT_PROGRESS TRUE
+)
+
+fetchcontent_makeavailable(Catch2)
+
 add_executable(retina_test retina_test.cpp)
 
 target_include_directories(retina_test PUBLIC ${PROJECT_SOURCE_DIR}/include)
