@@ -6,6 +6,8 @@ fetchcontent_declare(
     Boost
     URL
         https://github.com/boostorg/boost/releases/download/boost-1.83.0/boost-1.83.0.7z
+        DOWNLOAD_EXTRACT_TIMESTAMP
+        TRUE
 )
 
 fetchcontent_makeavailable(Boost)
