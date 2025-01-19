@@ -45,6 +45,7 @@ public:
 				close();
 				continue;
 			}
+			std::memcpy(&addr_, curr->ai_addr, curr->ai_addrlen);
 			break;
 		}
 		freeaddrinfo(info);
@@ -68,6 +69,7 @@ public:
 				close();
 				continue;
 			}
+			std::memcpy(&addr_, curr->ai_addr, curr->ai_addrlen);
 			break;
 		}
 		freeaddrinfo(info);
@@ -80,10 +82,13 @@ public:
 	}
 
 	auto accept() -> socket {
-		auto fd = ::accept(fd_, nullptr, nullptr);
+		auto client_addr = sockaddr_storage{};
+		auto client_addr_len = socklen_t(sizeof(client_addr));
+		auto fd = ::accept(fd_, std::bit_cast<sockaddr*>(&client_addr), &client_addr_len);
 		if (fd == -1) throw std::runtime_error(std::format("failed to accept client connection: {}", std::strerror(errno)));
 		auto client_socket = socket(type_);
 		client_socket.fd_ = fd;
+		std::memcpy(&client_socket.addr_, &client_addr, client_addr_len);
 		return client_socket;
 	}
 
@@ -109,9 +114,36 @@ public:
 
 	[[nodiscard]] auto fd() const -> std::int32_t { return fd_; }
 
+	[[nodiscard]] auto ip() const -> std::string {
+		auto ipstr = std::string();
+		const void* addr_ptr = nullptr;
+		switch (addr_.ss_family) {
+			case AF_INET:
+				ipstr.resize(INET_ADDRSTRLEN);
+				addr_ptr = &std::bit_cast<const sockaddr_in*>(&addr_)->sin_addr;
+				break;
+			case AF_INET6:
+				ipstr.resize(INET6_ADDRSTRLEN);
+				addr_ptr = &std::bit_cast<const sockaddr_in6*>(&addr_)->sin6_addr;
+				break;
+			default: throw std::runtime_error("unknown address family");
+		}
+		inet_ntop(addr_.ss_family, addr_ptr, ipstr.data(), ipstr.size());
+		return ipstr;
+	}
+
+	[[nodiscard]] auto port() const -> std::uint16_t {
+		switch (addr_.ss_family) {
+			case AF_INET: return ntohs(std::bit_cast<const sockaddr_in*>(&addr_)->sin_port);
+			case AF_INET6: return ntohs(std::bit_cast<const sockaddr_in6*>(&addr_)->sin6_port);
+			default: throw std::runtime_error("unknown address family");
+		}
+	}
+
 private:
-	std::int32_t fd_ = -1;
 	type type_;
+	std::int32_t fd_ = -1;
+	sockaddr_storage addr_{};
 };
 
 } // namespace retina::socket
