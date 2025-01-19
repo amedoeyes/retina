@@ -21,9 +21,18 @@ enum class type : std::uint8_t {
 class socket {
 public:
 	socket(const socket&) = delete;
-	socket(socket&&) = default;
+	socket(socket&& other) noexcept : type_(other.type_), fd_(other.fd_), addr_(other.addr_) { other.fd_ = -1; }
 	auto operator=(const socket&) -> socket& = delete;
-	auto operator=(socket&&) -> socket& = default;
+	auto operator=(socket&& other) noexcept -> socket& {
+		if (this != &other) {
+			close();
+			type_ = other.type_;
+			fd_ = other.fd_;
+			addr_ = other.addr_;
+			other.fd_ = -1;
+		}
+		return *this;
+	}
 	explicit socket(type type) : type_(type) {}
 	~socket() { close(); }
 
@@ -138,6 +147,12 @@ public:
 			case AF_INET6: return ntohs(std::bit_cast<const sockaddr_in6*>(&addr_)->sin6_port);
 			default: throw std::runtime_error("unknown address family");
 		}
+	}
+
+	auto set_reuseaddr(bool value) const -> void {
+		const auto reuse = static_cast<int>(value);
+		const auto res = setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+		if (res == -1) throw std::runtime_error(std::format("failed to set SO_REUSEADDR: {}", std::strerror(errno)));
 	}
 
 private:
