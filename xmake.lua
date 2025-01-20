@@ -11,6 +11,7 @@ add_rules("plugin.compile_commands.autoupdate", { lsp = "clangd", outputdir = "b
 target("retina", function()
 	set_kind("static")
 	add_files("src/**.cppm", { public = true })
+	add_syslinks("uring")
 end)
 
 for _, example in ipairs(os.files("examples/*.cpp")) do
