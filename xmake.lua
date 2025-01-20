@@ -13,7 +13,6 @@ target("retina", function()
 	add_files("src/**.cppm", { public = true })
 end)
 
-target("server", function()
-	add_files("src/main.cpp")
-	add_deps("retina")
-end)
+for _, example in ipairs(os.files("examples/*.cpp")) do
+	target(path.basename(example), { files = example, deps = "retina" })
+end
