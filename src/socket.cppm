@@ -36,16 +36,15 @@ public:
 	explicit socket(type type) : type_(type) {}
 	~socket() { close(); }
 
-	void bind(std::string_view ip, std::string_view port) {
+	[[nodiscard]] auto bind(std::string_view ip, std::string_view port) -> std::expected<void, std::int32_t> {
 		const auto hints = addrinfo{
 			.ai_flags = AI_PASSIVE,
 			.ai_family = AF_UNSPEC,
 			.ai_socktype = std::to_underlying(type_),
 		};
-
 		auto* info = static_cast<addrinfo*>(nullptr);
 		const auto res = getaddrinfo(ip.data(), port.data(), &hints, &info);
-		if (res != 0) throw std::runtime_error(std::format("getaddrinfo: {}", gai_strerror(res)));
+		if (res != 0) return std::unexpected(errno);
 		for (auto* curr = info; curr != nullptr; curr = curr->ai_next) {
 			fd_ = ::socket(curr->ai_family, curr->ai_socktype, curr->ai_protocol);
 			if (fd_ == -1) continue;
@@ -58,10 +57,11 @@ public:
 			break;
 		}
 		freeaddrinfo(info);
-		if (fd_ == -1) throw std::runtime_error(std::format("failed to bind socket: {}", std::strerror(errno)));
+		if (fd_ == -1) return std::unexpected(errno);
+		return {};
 	}
 
-	void connect(std::string_view ip, std::string_view port) {
+	[[nodiscard]] auto connect(std::string_view ip, std::string_view port) -> std::expected<void, std::int32_t> {
 		const auto hints = addrinfo{
 			.ai_flags = AI_PASSIVE,
 			.ai_family = AF_UNSPEC,
@@ -69,7 +69,7 @@ public:
 		};
 		auto* info = static_cast<addrinfo*>(nullptr);
 		const auto res = getaddrinfo(ip.data(), port.data(), &hints, &info);
-		if (res != 0) throw std::runtime_error(std::format("getaddrinfo: {}", gai_strerror(res)));
+		if (res != 0) return std::unexpected(errno);
 		for (auto* curr = info; curr != nullptr; curr = curr->ai_next) {
 			fd_ = ::socket(curr->ai_family, curr->ai_socktype, curr->ai_protocol);
 			if (fd_ == -1) continue;
@@ -82,36 +82,40 @@ public:
 			break;
 		}
 		freeaddrinfo(info);
-		if (fd_ == -1) throw std::runtime_error(std::format("failed to connect socket: {}", std::strerror(errno)));
+		if (fd_ == -1) return std::unexpected(errno);
+		return {};
 	}
 
-	auto listen(std::int32_t backlog = 20) const -> void {
+	[[nodiscard]] auto listen(std::int32_t backlog = 20) const -> std::expected<void, std::int32_t> {
 		const auto res = ::listen(fd_, backlog);
-		if (res == -1) throw std::runtime_error(std::format("failed to listen on socket: {}", std::strerror(errno)));
+		if (res == -1) return std::unexpected(errno);
+		return {};
 	}
 
-	auto accept() -> socket {
+	[[nodiscard]] auto accept() -> std::expected<socket, std::int32_t> {
 		auto client_addr = sockaddr_storage{};
 		auto client_addr_len = socklen_t(sizeof(client_addr));
-		auto fd = ::accept(fd_, std::bit_cast<sockaddr*>(&client_addr), &client_addr_len);
-		if (fd == -1) throw std::runtime_error(std::format("failed to accept client connection: {}", std::strerror(errno)));
+		const auto fd = ::accept(fd_, std::bit_cast<sockaddr*>(&client_addr), &client_addr_len);
+		if (fd == -1) return std::unexpected(errno);
 		auto client_socket = socket(type_);
 		client_socket.fd_ = fd;
 		std::memcpy(&client_socket.addr_, &client_addr, client_addr_len);
 		return client_socket;
 	}
 
-	[[nodiscard]] auto send(std::span<const std::byte> data) const -> std::uint32_t {
-		const auto res = ::send(fd_, data.data(), data.size(), 0);
-		if (res == -1) throw std::runtime_error(std::format("failed to send data: {}", std::strerror(errno)));
+	[[nodiscard]] auto send(std::span<const std::byte> buffer, std::int32_t flags = 0) const
+		-> std::expected<std::uint32_t, std::int32_t> {
+		const auto res = ::send(fd_, buffer.data(), buffer.size(), flags);
+		if (res == -1) return std::unexpected(errno);
 		return res;
 	}
 
-	[[nodiscard]] auto receive(std::uint64_t max_size) const -> std::optional<std::vector<std::byte>> {
-		std::vector<std::byte> buffer(max_size);
-		ssize_t bytes_received = ::recv(fd_, buffer.data(), buffer.size(), 0);
+	[[nodiscard]] auto receive(std::uint64_t max_size, std::int32_t flags = 0) const
+		-> std::expected<std::optional<std::vector<std::byte>>, std::int32_t> {
+		auto buffer = std::vector<std::byte>(max_size);
+		auto bytes_received = recv(fd_, buffer.data(), buffer.size(), flags);
 		if (bytes_received == 0) return std::nullopt;
-		if (bytes_received == -1) throw std::runtime_error(std::format("failed to receive data: {}", std::strerror(errno)));
+		if (bytes_received == -1) return std::unexpected(errno);
 		buffer.resize(bytes_received);
 		return buffer;
 	}
@@ -135,7 +139,7 @@ public:
 				ipstr.resize(INET6_ADDRSTRLEN);
 				addr_ptr = &std::bit_cast<const sockaddr_in6*>(&addr_)->sin6_addr;
 				break;
-			default: throw std::runtime_error("unknown address family");
+			default: std::unreachable();
 		}
 		inet_ntop(addr_.ss_family, addr_ptr, ipstr.data(), ipstr.size());
 		return ipstr;
@@ -145,14 +149,15 @@ public:
 		switch (addr_.ss_family) {
 			case AF_INET: return ntohs(std::bit_cast<const sockaddr_in*>(&addr_)->sin_port);
 			case AF_INET6: return ntohs(std::bit_cast<const sockaddr_in6*>(&addr_)->sin6_port);
-			default: throw std::runtime_error("unknown address family");
+			default: std::unreachable();
 		}
 	}
 
-	auto set_reuseaddr(bool value) const -> void {
+	[[nodiscard]] auto set_reuseaddr(bool value) const -> std::expected<void, std::int32_t> {
 		const auto reuse = static_cast<int>(value);
 		const auto res = setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-		if (res == -1) throw std::runtime_error(std::format("failed to set SO_REUSEADDR: {}", std::strerror(errno)));
+		if (res == -1) return std::unexpected(errno);
+		return {};
 	}
 
 private:
